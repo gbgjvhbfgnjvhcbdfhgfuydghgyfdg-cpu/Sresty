@@ -1,0 +1,6 @@
+{
+  "name": "NeonArcade - Unblocked Games Hub",
+  "description": "Play classic web arcade games like 2048, Snake, Pong, Breakout, and Flappy Bird embedded in high-performance iframes with fullscreen mode, search, and custom game support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

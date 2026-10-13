@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Four in a Row</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #090d16;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 12px;
+      overflow: hidden;
+    }
+    .hud {
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .title { font-size: 20px; font-weight: 800; color: #38bdf8; text-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
+    .status-badge {
+      background: #131c2e;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .board-container {
+      background: #1e3a8a;
+      border: 3px solid #3b82f6;
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 0 35px rgba(59, 130, 246, 0.3);
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      max-width: 420px;
+      width: 100%;
+    }
+    .cell {
+      aspect-ratio: 1;
+      background: #090d16;
+      border-radius: 50%;
+      box-shadow: inset 0 0 8px rgba(0,0,0,0.8);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s, transform 0.15s;
+    }
+    .cell:hover { transform: scale(1.05); }
+    .cell.p1 {
+      background: #f43f5e;
+      box-shadow: 0 0 15px rgba(244, 63, 94, 0.7);
+    }
+    .cell.p2 {
+      background: #eab308;
+      box-shadow: 0 0 15px rgba(234, 179, 8, 0.7);
+    }
+    .cell.win {
+      animation: pulse 1s infinite alternate;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); }
+      100% { transform: scale(1.1); }
+    }
+
+    .btn {
+      margin-top: 14px;
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn:hover { background: #38bdf8; color: #090d16; }
+
+    .help { margin-top: 10px; font-size: 11px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="title">FOUR IN A ROW</div>
+    <div class="status-badge" id="statusBadge">Your Turn (Red)</div>
+  </div>
+
+  <div class="board-container" id="board"></div>
+
+  <button class="btn" id="restartBtn">Restart Game</button>
+
+  <div class="help">
+    Click any column to drop your colored disc
+  </div>
+
+  <script>
+    const ROWS = 6;
+    const COLS = 7;
+    let grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    let currentPlayer = 1; // 1 = Red (Player), 2 = Yellow (AI)
+    let gameOver = false;
+
+    const boardEl = document.getElementById('board');
+    const statusBadge = document.getElementById('statusBadge');
+    const restartBtn = document.getElementById('restartBtn');
+
+    // Audio
+    const audioCtx = (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined')
+      ? new (window.AudioContext || window.webkitAudioContext)()
+      : null;
+
+    function playTone(freq, type = 'sine', duration = 0.08) {
+      if (!audioCtx) return;
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function init() {
+      grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+      currentPlayer = 1;
+      gameOver = false;
+      statusBadge.textContent = 'Your Turn (Red)';
+      statusBadge.style.color = '#f43f5e';
+      boardEl.innerHTML = '';
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.r = r;
+          cell.dataset.c = c;
+          cell.addEventListener('click', () => handleColumnClick(c));
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function checkWin(p) {
+      // Horizontal
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS - 3; c++) {
+          if (grid[r][c] === p && grid[r][c+1] === p && grid[r][c+2] === p && grid[r][c+3] === p) {
+            return [[r,c], [r,c+1], [r,c+2], [r,c+3]];
+          }
+        }
+      }
+      // Vertical
+      for (let r = 0; r < ROWS - 3; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c] === p && grid[r+1][c] === p && grid[r+2][c] === p && grid[r+3][c] === p) {
+            return [[r,c], [r+1,c], [r+2,c], [r+3,c]];
+          }
+        }
+      }
+      // Diagonal /
+      for (let r = 3; r < ROWS; r++) {
+        for (let c = 0; c < COLS - 3; c++) {
+          if (grid[r][c] === p && grid[r-1][c+1] === p && grid[r-2][c+2] === p && grid[r-3][c+3] === p) {
+            return [[r,c], [r-1,c+1], [r-2,c+2], [r-3,c+3]];
+          }
+        }
+      }
+      // Diagonal \
+      for (let r = 0; r < ROWS - 3; r++) {
+        for (let c = 0; c < COLS - 3; c++) {
+          if (grid[r][c] === p && grid[r+1][c+1] === p && grid[r+2][c+2] === p && grid[r+3][c+3] === p) {
+            return [[r,c], [r+1,c+1], [r+2,c+2], [r+3,c+3]];
+          }
+        }
+      }
+      return null;
+    }
+
+    function dropDisc(col, player) {
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (grid[r][col] === 0) {
+          grid[r][col] = player;
+          const cell = boardEl.children[r * COLS + col];
+          cell.classList.add(player === 1 ? 'p1' : 'p2');
+          playTone(player === 1 ? 400 : 320, 'triangle', 0.08);
+
+          const win = checkWin(player);
+          if (win) {
+            gameOver = true;
+            win.forEach(([wr, wc]) => {
+              boardEl.children[wr * COLS + wc].classList.add('win');
+            });
+            statusBadge.textContent = player === 1 ? 'You Won!' : 'Cyber Bot Won!';
+            statusBadge.style.color = player === 1 ? '#f43f5e' : '#eab308';
+            playTone(560, 'sine', 0.3);
+            return true;
+          }
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function handleColumnClick(col) {
+      if (gameOver || currentPlayer !== 1) return;
+
+      if (dropDisc(col, 1)) {
+        if (!gameOver) {
+          currentPlayer = 2;
+          statusBadge.textContent = 'Bot Thinking...';
+          statusBadge.style.color = '#eab308';
+
+          setTimeout(() => {
+            // Simple smart AI: Check winning drop or block player drop
+            let chosenCol = -1;
+            for (let c = 0; c < COLS; c++) {
+              // Can win?
+              // Test drop
+              for (let r = ROWS - 1; r >= 0; r--) {
+                if (grid[r][c] === 0) {
+                  grid[r][c] = 2;
+                  if (checkWin(2)) chosenCol = c;
+                  grid[r][c] = 0;
+                  break;
+                }
+              }
+            }
+
+            if (chosenCol === -1) {
+              // Block player win?
+              for (let c = 0; c < COLS; c++) {
+                for (let r = ROWS - 1; r >= 0; r--) {
+                  if (grid[r][c] === 0) {
+                    grid[r][c] = 1;
+                    if (checkWin(1)) chosenCol = c;
+                    grid[r][c] = 0;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (chosenCol === -1) {
+              const validCols = [];
+              for (let c = 0; c < COLS; c++) {
+                if (grid[0][c] === 0) validCols.push(c);
+              }
+              chosenCol = validCols[Math.floor(Math.random() * validCols.length)];
+            }
+
+            dropDisc(chosenCol, 2);
+            if (!gameOver) {
+              currentPlayer = 1;
+              statusBadge.textContent = 'Your Turn (Red)';
+              statusBadge.style.color = '#f43f5e';
+            }
+          }, 400);
+        }
+      }
+    }
+
+    restartBtn.addEventListener('click', init);
+    init();
+  </script>
+</body>
+</html>

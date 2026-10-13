@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Doodle Jump</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #334155;
+      color: #333;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 12px;
+      overflow: hidden;
+    }
+    .hud {
+      width: 100%;
+      max-width: 360px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .title { font-size: 20px; font-weight: 800; color: #84cc16; text-shadow: 1px 1px #000; }
+    .stats { display: flex; gap: 8px; }
+    .stat {
+      background: #1e293b;
+      border-radius: 4px;
+      padding: 4px 10px;
+      text-align: center;
+    }
+    .stat-label { font-size: 9px; text-transform: uppercase; color: #94a3b8; }
+    .stat-val { font-size: 15px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+    .canvas-container {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      aspect-ratio: 3 / 4;
+      border: 3px solid #64748b;
+      border-radius: 8px;
+      background: #fffbe6;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 251, 230, 0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 10;
+    }
+    .overlay.hidden { display: none; }
+    .overlay-title { font-size: 30px; font-weight: 900; color: #4d7c0f; }
+    .overlay-sub { font-size: 14px; color: #475569; }
+    .btn {
+      background: #84cc16;
+      color: #000;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .btn:hover { background: #a3e635; }
+    .help { margin-top: 10px; font-size: 11px; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="title">DOODLE JUMP</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Height</div><div class="stat-val" id="score">0</div></div>
+      <div class="stat"><div class="stat-label">Best</div><div class="stat-val" id="bestScore">0</div></div>
+    </div>
+  </div>
+
+  <div class="canvas-container">
+    <canvas id="gameCanvas" width="360" height="480"></canvas>
+    <div id="overlay" class="overlay">
+      <div id="overlayTitle" class="overlay-title">DOODLE JUMP</div>
+      <div id="overlaySub" class="overlay-sub">Jump as high as you can!</div>
+      <button id="startBtn" class="btn">PLAY NOW</button>
+    </div>
+  </div>
+
+  <div class="help">
+    Use <strong>Left/Right Arrows</strong> or <strong>A/D</strong> to move
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestScoreEl = document.getElementById('bestScore');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlaySub = document.getElementById('overlaySub');
+    const startBtn = document.getElementById('startBtn');
+
+    let score = 0;
+    let bestScore = parseInt(localStorage.getItem('classic_doodle_best') || '0', 10);
+    bestScoreEl.textContent = bestScore;
+    let isPlaying = false;
+
+    const player = {
+      x: canvas.width / 2 - 14,
+      y: canvas.height - 80,
+      w: 28,
+      h: 28,
+      vx: 0,
+      vy: 0,
+      jumpForce: -9.5,
+      gravity: 0.28
+    };
+
+    let platforms = [];
+    let keys = { left: false, right: false };
+
+    function initPlatforms() {
+      platforms = [];
+      platforms.push({ x: canvas.width / 2 - 35, y: canvas.height - 40, w: 70, h: 12, type: 'standard' });
+      for (let y = canvas.height - 100; y > 0; y -= 55) {
+        platforms.push({
+          x: Math.random() * (canvas.width - 65),
+          y,
+          w: 65,
+          h: 12,
+          type: Math.random() < 0.2 ? 'moving' : 'standard',
+          vx: Math.random() < 0.5 ? 1.5 : -1.5
+        });
+      }
+    }
+
+    function startGame() {
+      player.x = canvas.width / 2 - 14;
+      player.y = canvas.height - 80;
+      player.vx = 0;
+      player.vy = player.jumpForce;
+      score = 0;
+      scoreEl.textContent = '0';
+      initPlatforms();
+      isPlaying = true;
+      overlay.classList.add('hidden');
+      requestAnimationFrame(loop);
+    }
+
+    function gameOver() {
+      isPlaying = false;
+      if (score > bestScore) {
+        bestScore = score;
+        bestScoreEl.textContent = bestScore;
+        localStorage.setItem('classic_doodle_best', bestScore);
+      }
+      overlayTitle.textContent = 'GAME OVER';
+      overlaySub.textContent = `Score: ${score} · Best: ${bestScore}`;
+      startBtn.textContent = 'PLAY AGAIN';
+      overlay.classList.remove('hidden');
+    }
+
+    function update() {
+      if (keys.left) player.vx = -4.5;
+      else if (keys.right) player.vx = 4.5;
+      else player.vx *= 0.85;
+
+      player.x += player.vx;
+      if (player.x < -player.w) player.x = canvas.width;
+      if (player.x > canvas.width) player.x = -player.w;
+
+      player.vy += player.gravity;
+      player.y += player.vy;
+
+      if (player.y < canvas.height / 2) {
+        const delta = canvas.height / 2 - player.y;
+        player.y = canvas.height / 2;
+        score += Math.floor(delta);
+        scoreEl.textContent = score;
+
+        platforms.forEach(p => p.y += delta);
+        platforms = platforms.filter(p => p.y < canvas.height);
+        while (platforms.length < 9) {
+          const highestY = Math.min(...platforms.map(p => p.y));
+          platforms.push({
+            x: Math.random() * (canvas.width - 65),
+            y: highestY - 55 - Math.random() * 15,
+            w: 65,
+            h: 12,
+            type: Math.random() < 0.25 ? 'moving' : 'standard',
+            vx: Math.random() < 0.5 ? 1.5 : -1.5
+          });
+        }
+      }
+
+      platforms.forEach(p => {
+        if (p.type === 'moving') {
+          p.x += p.vx;
+          if (p.x <= 0 || p.x + p.w >= canvas.width) p.vx = -p.vx;
+        }
+      });
+
+      if (player.vy > 0) {
+        platforms.forEach(p => {
+          if (
+            player.x + player.w > p.x &&
+            player.x < p.x + p.w &&
+            player.y + player.h >= p.y &&
+            player.y + player.h <= p.y + 14
+          ) {
+            player.vy = player.jumpForce;
+          }
+        });
+      }
+
+      if (player.y > canvas.height) gameOver();
+    }
+
+    function render() {
+      // Classic graph paper background
+      ctx.fillStyle = '#fffbe6';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#e5e0c5';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 20) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 20) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Platforms
+      platforms.forEach(p => {
+        ctx.fillStyle = p.type === 'moving' ? '#3b82f6' : '#65a30d';
+        ctx.strokeStyle = '#365314';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(p.x, p.y, p.w, p.h, 6);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      // Classic Green Doodler
+      ctx.save();
+      ctx.fillStyle = '#84cc16';
+      ctx.strokeStyle = '#4d7c0f';
+      ctx.lineWidth = 2;
+
+      // Body
+      ctx.beginPath();
+      ctx.arc(player.x + player.w / 2, player.y + player.h / 2, player.w / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Snout
+      ctx.beginPath();
+      ctx.ellipse(player.x + player.w / 2, player.y + player.h / 2 + 6, 6, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Eyes
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(player.x + 8, player.y + 8, 3, 0, Math.PI * 2);
+      ctx.arc(player.x + 20, player.y + 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function loop() {
+      if (!isPlaying) return;
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = true;
+      if (['ArrowRight', 'KeyD'].includes(e.code)) keys.right = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = false;
+      if (['ArrowRight', 'KeyD'].includes(e.code)) keys.right = false;
+    });
+
+    startBtn.addEventListener('click', startGame);
+    initPlatforms();
+    render();
+  </script>
+</body>
+</html>

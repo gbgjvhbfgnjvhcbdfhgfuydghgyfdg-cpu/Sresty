@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Frogger</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 12px;
+      overflow: hidden;
+    }
+    .hud {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .title { font-size: 22px; font-weight: 800; color: #22c55e; }
+    .stats { display: flex; gap: 8px; }
+    .stat {
+      background: #1e293b;
+      border-radius: 4px;
+      padding: 4px 10px;
+      text-align: center;
+    }
+    .stat-label { font-size: 9px; text-transform: uppercase; color: #94a3b8; font-weight: 700; }
+    .stat-val { font-size: 15px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+    .canvas-container {
+      position: relative;
+      width: 100%;
+      max-width: 440px;
+      aspect-ratio: 11 / 12;
+      border: 3px solid #334155;
+      border-radius: 8px;
+      background: #000;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 10;
+    }
+    .overlay.hidden { display: none; }
+    .overlay-title { font-size: 32px; font-weight: 900; color: #22c55e; }
+    .overlay-sub { font-size: 14px; color: #94a3b8; }
+    .btn {
+      background: #22c55e;
+      color: #000;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .btn:hover { background: #4ade80; }
+    .help { margin-top: 10px; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="title">FROGGER</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Score</div><div class="stat-val" id="score">0</div></div>
+      <div class="stat"><div class="stat-label">Lives</div><div class="stat-val" id="lives">3</div></div>
+    </div>
+  </div>
+
+  <div class="canvas-container">
+    <canvas id="gameCanvas" width="440" height="480"></canvas>
+    <div id="overlay" class="overlay">
+      <div id="overlayTitle" class="overlay-title">FROGGER</div>
+      <div id="overlaySub" class="overlay-sub">Hop across traffic and river logs to home</div>
+      <button id="startBtn" class="btn">START</button>
+    </div>
+  </div>
+
+  <div class="help">
+    Use <strong>Arrow Keys</strong> or <strong>WASD</strong> to hop
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlaySub = document.getElementById('overlaySub');
+    const startBtn = document.getElementById('startBtn');
+
+    const GRID = 40, COLS = 11, ROWS = 12;
+    let score = 0, lives = 3, isPlaying = false;
+
+    const frog = { x: 5 * GRID, y: 11 * GRID, w: 28, h: 28 };
+    let vehicles = [], logs = [], goals = [false, false, false, false, false];
+
+    function initObstacles() {
+      vehicles = []; logs = [];
+      const speeds = [-2, 2.5, -3, 2, -1.8];
+      const colors = ['#ef4444', '#f97316', '#a855f7', '#ec4899', '#eab308'];
+      for (let i = 0; i < 5; i++) {
+        const row = 6 + i, spd = speeds[i];
+        for (let j = 0; j < 3; j++) {
+          vehicles.push({ x: j * 160, y: row * GRID + 6, w: 48, h: 26, speed: spd, color: colors[i] });
+        }
+      }
+      const logSpeeds = [2, -2.4, 1.8];
+      for (let i = 0; i < 3; i++) {
+        const row = 2 + i, spd = logSpeeds[i];
+        for (let j = 0; j < 2; j++) {
+          logs.push({ x: j * 220, y: row * GRID + 4, w: 90, h: 30, speed: spd });
+        }
+      }
+    }
+
+    function resetFrog() { frog.x = 5 * GRID; frog.y = 11 * GRID; }
+
+    function startGame() {
+      score = 0; lives = 3; goals = [false, false, false, false, false];
+      scoreEl.textContent = '0'; livesEl.textContent = '3';
+      initObstacles(); resetFrog();
+      isPlaying = true;
+      overlay.classList.add('hidden');
+      requestAnimationFrame(loop);
+    }
+
+    function gameOver(won) {
+      isPlaying = false;
+      overlayTitle.textContent = won ? 'ALL HOMES FULL!' : 'GAME OVER';
+      overlayTitle.style.color = won ? '#22c55e' : '#ef4444';
+      overlaySub.textContent = `Score: ${score}`;
+      startBtn.textContent = 'PLAY AGAIN';
+      overlay.classList.remove('hidden');
+    }
+
+    function killFrog() {
+      lives--; livesEl.textContent = lives; resetFrog();
+      if (lives <= 0) gameOver(false);
+    }
+
+    function update() {
+      vehicles.forEach(v => {
+        v.x += v.speed;
+        if (v.speed > 0 && v.x > canvas.width) v.x = -v.w;
+        if (v.speed < 0 && v.x < -v.w) v.x = canvas.width;
+        if (frog.y + 6 < v.y + v.h && frog.y + frog.h > v.y && frog.x + 6 < v.x + v.w && frog.x + frog.w - 6 > v.x) {
+          killFrog();
+        }
+      });
+
+      let onLog = false, logSpeed = 0;
+      logs.forEach(l => {
+        l.x += l.speed;
+        if (l.speed > 0 && l.x > canvas.width) l.x = -v.w;
+        if (l.speed < 0 && l.x < -l.w) l.x = canvas.width;
+        if (frog.y + 6 < l.y + l.h && frog.y + frog.h > l.y && frog.x + 10 < l.x + l.w && frog.x + frog.w - 10 > l.x) {
+          onLog = true; logSpeed = l.speed;
+        }
+      });
+
+      const row = Math.floor(frog.y / GRID);
+      if (row >= 2 && row <= 4) {
+        if (!onLog) killFrog();
+        else {
+          frog.x += logSpeed;
+          if (frog.x < 0 || frog.x + frog.w > canvas.width) killFrog();
+        }
+      }
+
+      if (row === 1) {
+        const goalIdx = Math.floor(frog.x / (GRID * 2));
+        if (goalIdx >= 0 && goalIdx < 5 && !goals[goalIdx]) {
+          goals[goalIdx] = true;
+          score += 250;
+          scoreEl.textContent = score;
+          resetFrog();
+          if (goals.every(Boolean)) gameOver(true);
+        } else {
+          killFrog();
+        }
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Safe Grass
+      ctx.fillStyle = '#1e3a1e';
+      ctx.fillRect(0, 11 * GRID, canvas.width, GRID);
+      ctx.fillRect(0, 5 * GRID, canvas.width, GRID);
+
+      // River
+      ctx.fillStyle = '#1d4ed8';
+      ctx.fillRect(0, 2 * GRID, canvas.width, 3 * GRID);
+
+      // Road
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 6 * GRID, canvas.width, 5 * GRID);
+
+      ctx.strokeStyle = '#fff';
+      ctx.setLineDash([8, 8]);
+      for (let r = 7; r <= 10; r++) {
+        ctx.beginPath(); ctx.moveTo(0, r * GRID); ctx.lineTo(canvas.width, r * GRID); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Goal Bays
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = goals[i] ? '#22c55e' : '#064e3b';
+        ctx.fillRect(i * (GRID * 2) + 10, GRID, 40, GRID);
+      }
+
+      // Wooden Logs
+      logs.forEach(l => {
+        ctx.fillStyle = '#854d0e';
+        ctx.beginPath();
+        ctx.roundRect(l.x, l.y, l.w, l.h, 4);
+        ctx.fill();
+      });
+
+      // Cars
+      vehicles.forEach(v => {
+        ctx.fillStyle = v.color;
+        ctx.beginPath();
+        ctx.roundRect(v.x, v.y, v.w, v.h, 6);
+        ctx.fill();
+      });
+
+      // Frog
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(frog.x + frog.w / 2, frog.y + frog.h / 2, 12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function loop() {
+      if (!isPlaying) return;
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (!isPlaying) return;
+      if (['ArrowUp', 'KeyW'].includes(e.code) && frog.y > GRID) { frog.y -= GRID; score += 10; scoreEl.textContent = score; }
+      else if (['ArrowDown', 'KeyS'].includes(e.code) && frog.y < 11 * GRID) frog.y += GRID;
+      else if (['ArrowLeft', 'KeyA'].includes(e.code) && frog.x > 0) frog.x -= GRID;
+      else if (['ArrowRight', 'KeyD'].includes(e.code) && frog.x + frog.w < canvas.width) frog.x += GRID;
+    });
+
+    startBtn.addEventListener('click', startGame);
+    initObstacles();
+    render();
+  </script>
+</body>
+</html>

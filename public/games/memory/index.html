@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Simon Memory Matrix</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #090d16;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 12px;
+      overflow: hidden;
+    }
+    .hud {
+      width: 100%;
+      max-width: 360px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .title { font-size: 20px; font-weight: 800; color: #a855f7; text-shadow: 0 0 15px rgba(168, 85, 247, 0.4); }
+    .stats { display: flex; gap: 8px; }
+    .stat {
+      background: #131c2e;
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      border-radius: 6px;
+      padding: 4px 10px;
+      text-align: center;
+    }
+    .stat-label { font-size: 9px; text-transform: uppercase; color: #94a3b8; }
+    .stat-val { font-size: 15px; font-weight: 700; color: #a855f7; font-variant-numeric: tabular-nums; }
+    
+    .pad-grid {
+      position: relative;
+      width: 300px;
+      height: 300px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 14px;
+      padding: 14px;
+      background: #0f172a;
+      border: 2px solid rgba(168, 85, 247, 0.3);
+      border-radius: 50%;
+      box-shadow: 0 0 35px rgba(168, 85, 247, 0.2);
+    }
+    .pad {
+      border: none;
+      cursor: pointer;
+      opacity: 0.6;
+      transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+    }
+    .pad:active, .pad.active {
+      opacity: 1;
+      transform: scale(0.97);
+    }
+    .pad-green {
+      background: #10b981;
+      border-radius: 120px 0 0 0;
+    }
+    .pad-green.active { box-shadow: 0 0 30px #10b981; }
+
+    .pad-red {
+      background: #f43f5e;
+      border-radius: 0 120px 0 0;
+    }
+    .pad-red.active { box-shadow: 0 0 30px #f43f5e; }
+
+    .pad-yellow {
+      background: #eab308;
+      border-radius: 0 0 0 120px;
+    }
+    .pad-yellow.active { box-shadow: 0 0 30px #eab308; }
+
+    .pad-blue {
+      background: #06b6d4;
+      border-radius: 0 0 120px 0;
+    }
+    .pad-blue.active { box-shadow: 0 0 30px #06b6d4; }
+
+    .center-circle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 90px;
+      height: 90px;
+      background: #090d16;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
+    }
+    .center-btn {
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .center-btn:hover { background: #a855f7; color: #090d16; }
+
+    .help { margin-top: 16px; font-size: 11px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="title">SIMON MEMORY</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Round</div><div class="stat-val" id="round">0</div></div>
+      <div class="stat"><div class="stat-label">Best</div><div class="stat-val" id="best">0</div></div>
+    </div>
+  </div>
+
+  <div class="pad-grid">
+    <button class="pad pad-green" data-id="0"></button>
+    <button class="pad pad-red" data-id="1"></button>
+    <button class="pad pad-yellow" data-id="2"></button>
+    <button class="pad pad-blue" data-id="3"></button>
+
+    <div class="center-circle">
+      <button class="center-btn" id="startBtn">START</button>
+    </div>
+  </div>
+
+  <div class="help">
+    Watch the pattern sequence and repeat it accurately
+  </div>
+
+  <script>
+    const roundEl = document.getElementById('round');
+    const bestEl = document.getElementById('best');
+    const startBtn = document.getElementById('startBtn');
+    const pads = document.querySelectorAll('.pad');
+
+    const FREQS = [329.63, 261.63, 220.00, 164.81]; // E4, C4, A3, E3
+
+    let sequence = [];
+    let playerIdx = 0;
+    let isPlaying = false;
+    let isShowingSequence = false;
+    let best = parseInt(localStorage.getItem('neon_simon_best') || '0', 10);
+    bestEl.textContent = best;
+
+    // Audio
+    const audioCtx = (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined')
+      ? new (window.AudioContext || window.webkitAudioContext)()
+      : null;
+
+    function playTone(freq, duration = 0.25) {
+      if (!audioCtx) return;
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function flashPad(id) {
+      pads[id].classList.add('active');
+      playTone(FREQS[id], 0.22);
+      setTimeout(() => {
+        pads[id].classList.remove('active');
+      }, 250);
+    }
+
+    async function playSequence() {
+      isShowingSequence = true;
+      startBtn.textContent = 'WATCH';
+      await new Promise(r => setTimeout(r, 600));
+
+      for (const id of sequence) {
+        flashPad(id);
+        await new Promise(r => setTimeout(r, 450));
+      }
+
+      isShowingSequence = false;
+      startBtn.textContent = 'REPEAT';
+      playerIdx = 0;
+    }
+
+    function nextRound() {
+      const nextId = Math.floor(Math.random() * 4);
+      sequence.push(nextId);
+      roundEl.textContent = sequence.length;
+      if (sequence.length > best) {
+        best = sequence.length;
+        bestEl.textContent = best;
+        localStorage.setItem('neon_simon_best', best);
+      }
+      playSequence();
+    }
+
+    function startGame() {
+      sequence = [];
+      isPlaying = true;
+      nextRound();
+    }
+
+    function gameOver() {
+      isPlaying = false;
+      playTone(120, 0.4);
+      startBtn.textContent = 'AGAIN';
+      alert(`Game Over! You reached round ${sequence.length}`);
+    }
+
+    pads.forEach(pad => {
+      pad.addEventListener('click', () => {
+        if (!isPlaying || isShowingSequence) return;
+        const id = parseInt(pad.dataset.id, 10);
+        flashPad(id);
+
+        if (id === sequence[playerIdx]) {
+          playerIdx++;
+          if (playerIdx === sequence.length) {
+            setTimeout(nextRound, 600);
+          }
+        } else {
+          gameOver();
+        }
+      });
+    });
+
+    startBtn.addEventListener('click', startGame);
+  </script>
+</body>
+</html>

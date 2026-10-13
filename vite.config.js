@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
+    base: './', // Ensures relative asset paths so the site works on GitHub Pages (e.g., https://user.github.io/repo/)
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
